@@ -52,6 +52,16 @@ https://github.com/<you>/<build-repo>/releases/download/<tag>/system.img.xz
 - sparse 或 raw 都行（脚本里是 `simg2img || cp`）。
 - 只处理 system 分区；**boot.img 不要动**（ramdisk 里有 `/lib/modules/sprdwl_ng.ko` 等，WiFi 靠它）。
 
+## 磁盘占用
+
+不需要清理 runner。峰值大约是：输入镜像 ~2.5G（run.sh 跑完立即删除）
++ `s.img` 被 `resize2fs 3500M` 撑到 3.5G（结束时 `resize2fs -M` 缩回）
++ `vendor_vndk` 0.3G，合计 6~7G，而 runner 自带约 14G 空闲。
+workflow 只做一次 `df` 体检，不做任何删除操作。
+
+（只有把这段逻辑直接塞进 LineageOS 编译 workflow（`out/` 有几十 G）时才需要先清盘；
+本仓库独立跑，不需要。）
+
 ## 产物
 
 `s.img` → 上传为 artifact `system-nosas`（默认名 `lineage-18.1-arm64_bvN-nosas-raw.img`）。

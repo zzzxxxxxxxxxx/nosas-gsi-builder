@@ -45,14 +45,16 @@ jobs:
             exit 1
           fi
 
-      - name: Free disk space
+      - name: Check disk space
+        # 不需要清理：峰值大致是 输入(2.5G) + s.img 撑到 3.5G + vendor_vndk(0.3G)，
+        # runner 自带 ~14G 足够。这里只做个体检。
         run: |
           df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-                      "$AGENT_TOOLSDIRECTORY" || true
-          sudo apt-get clean
-          df -h /
+          avail_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
+          echo "free: $((avail_kb / 1024 / 1024)) GiB"
+          if [ "$avail_kb" -lt 8388608 ]; then
+            echo "::warning::less than 8 GiB free - run.sh needs room for a 3.5G image plus the input"
+          fi
 
       - name: Install deps
         run: |
@@ -116,10 +118,16 @@ jobs:
           cd /tmp/sas-creator
           sudo -E env "PATH=$PATH" bash run.sh 64 "$GITHUB_WORKSPACE/work/system.img"
           sudo chown "$(id -u):$(id -g)" s.img
+
+          # 输入镜像不再需要，先腾地方（约 2.5G）
+          rm -rf "$GITHUB_WORKSPACE/work"
+
           ls -la s.img
           bash "$GITHUB_WORKSPACE/scripts/verify-image.sh" s.img
-          cp s.img "$GITHUB_WORKSPACE/${{ inputs.out_name }}"
+          # 用 mv 而不是 cp：/tmp 和 workspace 在同一个文件系统上，省一次 2.5G 拷贝
+          mv s.img "$GITHUB_WORKSPACE/${{ inputs.out_name }}"
           md5sum "$GITHUB_WORKSPACE/${{ inputs.out_name }}"
+          df -h /
 
       - uses: actions/upload-artifact@v4
         with:
