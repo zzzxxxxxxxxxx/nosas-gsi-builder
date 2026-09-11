@@ -68,6 +68,18 @@ workflow 会跑 `scripts/verify-image.sh`，任何一项不过就 fail，判据�
 - `/system_ext/apex/com.android.vndk.v26` 存在
 - `/bin/sh` 带有 `security.selinux` 上下文（xattr 没丢）
 
+## 关于 xattr CLI
+
+`run.sh` 里用的是 `xattr -w NAME VALUE FILE` / `xattr -sw NAME VALUE SYMLINK` 这套语法，
+它来自 **PyPI 的 `xattr`**（python-xattr）。workflow 优先用 `pip install xattr` 装它。
+
+Ubuntu 的 apt 包 `xattr` 是**另一个实现**（man page 只有 `-lz / -p / -w / -d`，没有 `-s`），
+run.sh 里有 4 处需要 `-s`（给 `lib{,64}/vndk-26`、`vndk-sp-26` 这些符号链接本身打标签），
+所以 apt 版不够用。
+
+万一 pip 不可用（比如镜像策略变化），workflow 会自动退回仓库里的 `scripts/xattr`，
+它是基于 `setfattr` 的等价垫片（`-w` / `-sw` 两种调用都实现了）。
+
 ## pinned 版本
 
 - sas-creator `41bdf25142be8aa02019423816ab0c13c96acd56`

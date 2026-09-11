@@ -58,11 +58,23 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq android-sdk-libsparse-utils e2fsprogs attr curl xz-utils unzip
-          # run.sh 里用 `xattr -w security.selinux ...`，Ubuntu 没这个 CLI，用 setfattr 顶一个
-          sudo install -m 0755 scripts/xattr /usr/local/bin/xattr
+
+          # run.sh 用 PyPI 版 xattr 的语法：xattr -w NAME VALUE FILE，且支持 -s（作用于符号链接本身）。
+          # 注意：Ubuntu 的 apt 包 `xattr` 是另一个实现，没有 -s，所以走 pip。
+          if ! sudo python3 -m pip install --quiet xattr; then
+            sudo python3 -m pip install --quiet --break-system-packages xattr
+          fi
+
+          # 兜底：pip 不可用时，用仓库里的 setfattr 垫片（同样实现 -w / -sw）
+          if ! command -v xattr >/dev/null 2>&1; then
+            echo "::warning::pip xattr unavailable - falling back to the setfattr shim"
+            sudo install -m 0755 scripts/xattr /usr/local/bin/xattr
+          fi
+
           command -v simg2img
           command -v setfattr
           command -v xattr
+          xattr -h 2>&1 | head -3 || true
 
       - name: Download image by URL
         if: inputs.image_url != ''
