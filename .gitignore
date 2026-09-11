@@ -1,0 +1,5 @@
+work/
+*.img
+*.img.xz
+*.img.gz
+!scripts/*.sh

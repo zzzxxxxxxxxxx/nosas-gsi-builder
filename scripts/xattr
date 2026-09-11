@@ -1,0 +1,33 @@
+#!/bin/sh
+# Minimal `xattr` CLI shim for phhusson/sas-creator's run.sh.
+#
+# The script calls:
+#   xattr -w  <name> <value> <file...>
+#   xattr -sw <name> <value> <symlink...>
+#
+# Implemented on top of setfattr(1) from the `attr` package, which is what
+# Debian/Ubuntu ship. (pip's `xattr` package would also work, but it trips
+# over PEP668 on newer runner images.)
+set -e
+
+case "$1" in
+  -w)
+    name="$2"; value="$3"; shift 3
+    [ "$#" -gt 0 ] || { echo "xattr shim: no files given" >&2; exit 1; }
+    for f in "$@"; do setfattr -n "$name" -v "$value" "$f"; done
+    ;;
+  -sw)
+    name="$2"; value="$3"; shift 3
+    [ "$#" -gt 0 ] || { echo "xattr shim: no symlinks given" >&2; exit 1; }
+    for f in "$@"; do setfattr -h -n "$name" -v "$value" "$f"; done
+    ;;
+  -l|-d)
+    # not used by run.sh, but keep something sane for debugging
+    shift
+    for f in "$@"; do getfattr -d -m - "$f"; done
+    ;;
+  *)
+    echo "xattr shim: unsupported invocation: $*" >&2
+    exit 2
+    ;;
+esac

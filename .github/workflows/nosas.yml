@@ -1,0 +1,132 @@
+name: nosas
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_url:
+        description: "system.img 直链（.img/.img.xz/.img.gz/.zip/.tar.*）；留空则走下面的 artifact 方式"
+        required: false
+        type: string
+      src_repo:
+        description: "artifact 方式：源仓库 owner/repo"
+        required: false
+        type: string
+      src_workflow:
+        description: "artifact 方式：源 workflow 文件名（如 build-lineage.yml）"
+        required: false
+        type: string
+      src_artifact:
+        description: "artifact 方式：源 artifact 名（如 system-img）"
+        required: false
+        type: string
+      out_name:
+        description: "产物文件名"
+        required: false
+        default: "lineage-18.1-arm64_bvN-nosas-raw.img"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  nosas:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        env:
+          IMAGE_URL: ${{ inputs.image_url }}
+          SRC_ARTIFACT: ${{ inputs.src_artifact }}
+        run: |
+          if [ -z "$IMAGE_URL" ] && [ -z "$SRC_ARTIFACT" ]; then
+            echo "::error::需要 image_url 或 src_artifact 之一"
+            exit 1
+          fi
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq android-sdk-libsparse-utils e2fsprogs attr curl xz-utils unzip
+          # run.sh 里用 `xattr -w security.selinux ...`，Ubuntu 没这个 CLI，用 setfattr 顶一个
+          sudo install -m 0755 scripts/xattr /usr/local/bin/xattr
+          command -v simg2img
+          command -v setfattr
+          command -v xattr
+
+      - name: Download image by URL
+        if: inputs.image_url != ''
+        env:
+          URL: ${{ inputs.image_url }}
+        run: bash scripts/prepare-input.sh "$URL" "$GITHUB_WORKSPACE/work/system.img"
+
+      - name: Download artifact from another repo
+        if: inputs.image_url == ''
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.SRC_REPO_TOKEN != '' && secrets.SRC_REPO_TOKEN || github.token }}
+          repo: ${{ inputs.src_repo }}
+          workflow: ${{ inputs.src_workflow }}
+          name: ${{ inputs.src_artifact }}
+          path: work/dl
+          if_no_artifact_found: fail
+
+      - name: Normalize artifact
+        if: inputs.image_url == ''
+        run: bash scripts/prepare-input.sh "$GITHUB_WORKSPACE/work/dl" "$GITHUB_WORKSPACE/work/system.img"
+
+      - name: Clone sas-creator + vendor_vndk (pinned)
+        run: |
+          git clone https://github.com/phhusson/sas-creator.git /tmp/sas-creator
+          git -C /tmp/sas-creator fetch --depth 1 origin 41bdf25142be8aa02019423816ab0c13c96acd56
+          git -C /tmp/sas-creator checkout --detach FETCH_HEAD
+
+          git clone -b android-10.0 https://github.com/phhusson/vendor_vndk.git /tmp/sas-creator/vendor_vndk
+          git -C /tmp/sas-creator/vendor_vndk fetch --depth 1 origin f67d0d575dd044f9cd929b198a72c86fda8454ff
+          git -C /tmp/sas-creator/vendor_vndk checkout --detach FETCH_HEAD
+
+          ls -d /tmp/sas-creator/vendor_vndk/vndk-sp-26-arm64
+          df -h /
+
+      - name: Run sas-creator (run.sh 64)
+        run: |
+          set -x
+          cd /tmp/sas-creator
+          sudo -E env "PATH=$PATH" bash run.sh 64 "$GITHUB_WORKSPACE/work/system.img"
+          sudo chown "$(id -u):$(id -g)" s.img
+          ls -la s.img
+          bash "$GITHUB_WORKSPACE/scripts/verify-image.sh" s.img
+          cp s.img "$GITHUB_WORKSPACE/${{ inputs.out_name }}"
+          md5sum "$GITHUB_WORKSPACE/${{ inputs.out_name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: system-nosas
+          path: ${{ inputs.out_name }}
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Summary
+        run: |
+          {
+            echo "### nosas build"
+            echo
+            echo "- input url: \`${{ inputs.image_url }}\`"
+            echo "- input artifact: \`${{ inputs.src_repo }}\` / \`${{ inputs.src_artifact }}\`"
+            echo "- output: \`${{ inputs.out_name }}\`"
+            echo
+            echo '```'
+            ls -la "${{ inputs.out_name }}"
+            md5sum "${{ inputs.out_name }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
