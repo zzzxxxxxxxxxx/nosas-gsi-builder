@@ -112,6 +112,11 @@ jobs:
           ls -d /tmp/sas-creator/vendor_vndk/vndk-sp-26-arm64
           df -h /
 
+      - name: Patch run.sh for newer build trees
+        # run.sh 是 2022 年针对早期 A11 写的；新构建里有些文件被删/挪了
+        # （比如 etc/init/llkd*.rc），无条件 sed 会让 `set -e` 直接中断。
+        run: bash scripts/patch-run.sh /tmp/sas-creator/run.sh
+
       - name: Run sas-creator (run.sh 64)
         run: |
           set -x

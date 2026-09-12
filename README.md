@@ -96,3 +96,21 @@ run.sh 里有 4 处需要 `-s`（给 `lib{,64}/vndk-26`、`vndk-sp-26` 这些符
 - vendor_vndk（android-10.0）`f67d0d575dd044f9cd929b198a72c86fda8454ff`
 
 升级时改 workflow 里那两个 sha 即可。
+
+## 为什么还要 patch run.sh
+
+`run.sh` 里有十来处是"对固定文件列表直接 sed / 打 xattr / 从 apex 里 cp init.rc"。
+那是 2022 年针对早期 Android 11 构建写的，而现在的构建：
+
+- 删掉了 `etc/init/llkd.rc` 和 `etc/init/llkd-debuggable.rc` → `sed` 报 "No such file" ，
+  `set -e` 让整个脚本停在半路（这是第一次 CI 失败的真正原因）
+- 有些 apex（`com.android.adbd`、`com.android.media.swcodec`）在某些构建里可能没有 init.rc
+
+所以 `scripts/patch-run.sh` 会把这类语句改写成"存在才处理"的形式：
+
+```sh
+for f in <files>; do [ -e "$f" ] || continue; <cmd> "$f"; done
+```
+
+它是**按 pinned 版本逐条精确匹配**的：一旦上游改动导致某条匹配不上，会直接报错退出，
+而不是静默跳过某处补丁。
